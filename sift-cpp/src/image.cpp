@@ -9,6 +9,9 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+#include <omp.h>
+
+
 Image::Image(std::string file_path)
 {
     unsigned char *img_data = stbi_load(file_path.c_str(), &width, &height, &channels, 0);
@@ -268,6 +271,7 @@ Image gaussian_blur(const Image& img, float sigma)
     Image filtered(img.width, img.height, 1);
 
     // convolve vertical
+    #pragma omp parallel for collapse(2) private(sum)
     for (int x = 0; x < img.width; x++) {
         for (int y = 0; y < img.height; y++) {
             float sum = 0;
@@ -279,6 +283,7 @@ Image gaussian_blur(const Image& img, float sigma)
         }
     }
     // convolve horizontal
+    #pragma omp parallel for collapse(2) private(sum)
     for (int x = 0; x < img.width; x++) {
         for (int y = 0; y < img.height; y++) {
             float sum = 0;
