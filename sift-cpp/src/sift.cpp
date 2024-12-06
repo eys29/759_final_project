@@ -216,6 +216,8 @@ bool point_is_on_edge(const Keypoint& kp, const std::vector<Image>& octave, floa
         return false;
 }
 
+// Zhengxiong's Part
+// no parallelization 
 void find_input_img_coords(Keypoint& kp, float offset_s, float offset_x, float offset_y,
                                    float sigma_min=SIGMA_MIN,
                                    float min_pix_dist=MIN_PIX_DIST, int n_spo=N_SPO)
@@ -225,6 +227,7 @@ void find_input_img_coords(Keypoint& kp, float offset_s, float offset_x, float o
     kp.y = min_pix_dist * std::pow(2, kp.octave) * (offset_y+kp.j);
 }
 
+// no parallelization, a while loop instead of a for loop
 bool refine_or_discard_keypoint(Keypoint& kp, const std::vector<Image>& octave,
                                 float contrast_thresh, float edge_thresh)
 {
@@ -253,31 +256,78 @@ bool refine_or_discard_keypoint(Keypoint& kp, const std::vector<Image>& octave,
     return kp_is_valid;
 }
 
+// Can be parallelized
+// std::vector<Keypoint> find_keypoints(const ScaleSpacePyramid& dog_pyramid, float contrast_thresh,
+//                                      float edge_thresh)
+// {
+//     std::vector<Keypoint> keypoints;
+//     #pragma omp parallel{
+//         for (int i = 0; i < dog_pyramid.num_octaves; i++) {
+//             const std::vector<Image>& octave = dog_pyramid.octaves[i];
+//             for (int j = 1; j < dog_pyramid.imgs_per_octave-1; j++) {
+//                 const Image& img = octave[j];
+
+//                 #pragma omp parallel for collapse(2) schedule(dynamic)
+//                 for (int x = 1; x < img.width-1; x++) {
+//                     for (int y = 1; y < img.height-1; y++) {
+//                         if (std::abs(img.get_pixel(x, y, 0)) < 0.8*contrast_thresh) {
+//                             continue;
+//                         }
+//                         if (point_is_extremum(octave, j, x, y)) {
+//                             Keypoint kp = {x, y, i, j, -1, -1, -1, -1};
+//                             bool kp_is_valid = refine_or_discard_keypoint(kp, octave, contrast_thresh,
+//                                                                         edge_thresh);
+//                             if (kp_is_valid) {
+//                                 keypoints.push_back(kp);
+//                             }
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+//     }
+//     return keypoints;
+// }
+
 std::vector<Keypoint> find_keypoints(const ScaleSpacePyramid& dog_pyramid, float contrast_thresh,
                                      float edge_thresh)
 {
     std::vector<Keypoint> keypoints;
-    for (int i = 0; i < dog_pyramid.num_octaves; i++) {
-        const std::vector<Image>& octave = dog_pyramid.octaves[i];
-        for (int j = 1; j < dog_pyramid.imgs_per_octave-1; j++) {
-            const Image& img = octave[j];
-            for (int x = 1; x < img.width-1; x++) {
-                for (int y = 1; y < img.height-1; y++) {
-                    if (std::abs(img.get_pixel(x, y, 0)) < 0.8*contrast_thresh) {
-                        continue;
-                    }
-                    if (point_is_extremum(octave, j, x, y)) {
-                        Keypoint kp = {x, y, i, j, -1, -1, -1, -1};
-                        bool kp_is_valid = refine_or_discard_keypoint(kp, octave, contrast_thresh,
-                                                                      edge_thresh);
-                        if (kp_is_valid) {
-                            keypoints.push_back(kp);
+
+    #pragma omp parallel
+    {
+        // Thread-local storage for keypoints
+        std::vector<Keypoint> local_keypoints;
+
+        #pragma omp for schedule(dynamic) collapse(2)
+        for (int i = 0; i < dog_pyramid.num_octaves; i++) {
+            for (int j = 1; j < dog_pyramid.imgs_per_octave - 1; j++) {
+                const std::vector<Image>& octave = dog_pyramid.octaves[i];
+                const Image& img = octave[j];
+
+                for (int x = 1; x < img.width - 1; x++) {
+                    for (int y = 1; y < img.height - 1; y++) {
+                        if (std::abs(img.get_pixel(x, y, 0)) < 0.8 * contrast_thresh) {
+                            continue;
+                        }
+                        if (point_is_extremum(octave, j, x, y)) {
+                            Keypoint kp = {x, y, i, j, -1, -1, -1, -1};
+                            bool kp_is_valid = refine_or_discard_keypoint(kp, octave, contrast_thresh,
+                                                                          edge_thresh);
+                            if (kp_is_valid) {
+                                local_keypoints.push_back(kp);
+                            }
                         }
                     }
                 }
             }
         }
+
+        // Merge thread-local keypoints into the shared keypoints vector
+        #pragma omp critical
+        keypoints.insert(keypoints.end(), local_keypoints.begin(), local_keypoints.end());
     }
+
     return keypoints;
 }
 
