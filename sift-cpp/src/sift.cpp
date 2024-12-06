@@ -331,7 +331,9 @@ std::vector<Keypoint> find_keypoints(const ScaleSpacePyramid& dog_pyramid, float
     return keypoints;
 }
 
+// Can be parallelized
 // calculate x and y derivatives for all images in the input pyramid
+// Assuming ScaleSpacePyramid and Image are defined with necessary methods
 ScaleSpacePyramid generate_gradient_pyramid(const ScaleSpacePyramid& pyramid)
 {
     ScaleSpacePyramid grad_pyramid = {
@@ -339,28 +341,67 @@ ScaleSpacePyramid generate_gradient_pyramid(const ScaleSpacePyramid& pyramid)
         pyramid.imgs_per_octave,
         std::vector<std::vector<Image>>(pyramid.num_octaves)
     };
+
+    #pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < pyramid.num_octaves; i++) {
         grad_pyramid.octaves[i].reserve(grad_pyramid.imgs_per_octave);
         int width = pyramid.octaves[i][0].width;
         int height = pyramid.octaves[i][0].height;
+
         for (int j = 0; j < pyramid.imgs_per_octave; j++) {
             Image grad(width, height, 2);
             float gx, gy;
-            for (int x = 1; x < grad.width-1; x++) {
-                for (int y = 1; y < grad.height-1; y++) {
-                    gx = (pyramid.octaves[i][j].get_pixel(x+1, y, 0)
-                         -pyramid.octaves[i][j].get_pixel(x-1, y, 0)) * 0.5;
+
+            // Compute gradients
+            for (int x = 1; x < grad.width - 1; x++) {
+                for (int y = 1; y < grad.height - 1; y++) {
+                    gx = (pyramid.octaves[i][j].get_pixel(x + 1, y, 0)
+                         - pyramid.octaves[i][j].get_pixel(x - 1, y, 0)) * 0.5;
                     grad.set_pixel(x, y, 0, gx);
-                    gy = (pyramid.octaves[i][j].get_pixel(x, y+1, 0)
-                         -pyramid.octaves[i][j].get_pixel(x, y-1, 0)) * 0.5;
+                    gy = (pyramid.octaves[i][j].get_pixel(x, y + 1, 0)
+                         - pyramid.octaves[i][j].get_pixel(x, y - 1, 0)) * 0.5;
                     grad.set_pixel(x, y, 1, gy);
                 }
             }
+
+            // Add gradient image to the pyramid
+            #pragma omp critical
             grad_pyramid.octaves[i].push_back(grad);
         }
     }
+
     return grad_pyramid;
 }
+
+// ScaleSpacePyramid generate_gradient_pyramid(const ScaleSpacePyramid& pyramid)
+// {
+//     ScaleSpacePyramid grad_pyramid = {
+//         pyramid.num_octaves,
+//         pyramid.imgs_per_octave,
+//         std::vector<std::vector<Image>>(pyramid.num_octaves)
+//     };
+//     for (int i = 0; i < pyramid.num_octaves; i++) {
+//         grad_pyramid.octaves[i].reserve(grad_pyramid.imgs_per_octave);
+//         int width = pyramid.octaves[i][0].width;
+//         int height = pyramid.octaves[i][0].height;
+//         for (int j = 0; j < pyramid.imgs_per_octave; j++) {
+//             Image grad(width, height, 2);
+//             float gx, gy;
+//             for (int x = 1; x < grad.width-1; x++) {
+//                 for (int y = 1; y < grad.height-1; y++) {
+//                     gx = (pyramid.octaves[i][j].get_pixel(x+1, y, 0)
+//                          -pyramid.octaves[i][j].get_pixel(x-1, y, 0)) * 0.5;
+//                     grad.set_pixel(x, y, 0, gx);
+//                     gy = (pyramid.octaves[i][j].get_pixel(x, y+1, 0)
+//                          -pyramid.octaves[i][j].get_pixel(x, y-1, 0)) * 0.5;
+//                     grad.set_pixel(x, y, 1, gy);
+//                 }
+//             }
+//             grad_pyramid.octaves[i].push_back(grad);
+//         }
+//     }
+//     return grad_pyramid;
+// }
 
 // convolve 6x with box filter
 void smooth_histogram(float hist[N_BINS])
