@@ -33,14 +33,14 @@ ScaleSpacePyramid generate_gaussian_pyramid(const Image& img, float sigma_min,
     int imgs_per_octave = scales_per_octave + 3;
     // determine sigma values for bluring
     float k = std::pow(2, 1.0/scales_per_octave);
-    std::vector<float> sigma_vals {base_sigma};
-    // adding omp here makes result a bit wonky, increases time, and increases num matches
-    // #pragma omp parallel for
+    std::vector<float> sigma_vals(imgs_per_octave);
+    sigma_vals[0] = base_sigma;
+
+    // imgs_per_octave = 6 so not much performance gains here with omp
     for (int i = 1; i < imgs_per_octave; i++) {
-        float sigma_prev = base_sigma * std::pow(k, i-1);
+        float sigma_prev = base_sigma * std::pow(k, i - 1);
         float sigma_total = k * sigma_prev;
-        // #pragma omp critical
-        sigma_vals.push_back(std::sqrt(sigma_total*sigma_total - sigma_prev*sigma_prev));
+        sigma_vals[i] = std::sqrt(sigma_total * sigma_total - sigma_prev * sigma_prev);
     }
 
     // create a scale space pyramid of gaussian images
@@ -50,9 +50,12 @@ ScaleSpacePyramid generate_gaussian_pyramid(const Image& img, float sigma_min,
         imgs_per_octave,
         std::vector<std::vector<Image>>(num_octaves)
     };
+
+    // num_octaves = 8 so not much performance gains here with omp
     for (int i = 0; i < num_octaves; i++) {
         pyramid.octaves[i].reserve(imgs_per_octave);
         pyramid.octaves[i].push_back(std::move(base_img));
+        // size = 8 so not much performance gains here with omp
         for (int j = 1; j < sigma_vals.size(); j++) {
             const Image& prev_img = pyramid.octaves[i].back();
             pyramid.octaves[i].push_back(gaussian_blur(prev_img, sigma_vals[j]));
@@ -63,23 +66,6 @@ ScaleSpacePyramid generate_gaussian_pyramid(const Image& img, float sigma_min,
                                         Interpolation::NEAREST);
     }
 
-    // prep base images 
-    // std::vector<Image> base_imgs = std::vector<Image>(num_octaves);
-    // base_imgs[0] = base_img;
-    // for (int i = 1; i < num_octaves; i++) {
-    //     const Image& next_base_img = pyramid.octaves[i][imgs_per_octave-3];
-    //     base_img = next_base_img.resize(next_base_img.width/2, next_base_img.height/2,
-    //                                     Interpolation::NEAREST);
-    // }
-
-    // for (int i = 0; i < num_octaves; i++) {
-    //     pyramid.octaves[i].reserve(imgs_per_octave);
-    //     pyramid.octaves[i].push_back(std::move(base_img));
-    //     for (int j = 1; j < sigma_vals.size(); j++) {
-    //         const Image& prev_img = pyramid.octaves[i].back();
-    //         pyramid.octaves[i].push_back(gaussian_blur(prev_img, sigma_vals[j]));
-    //     }
-    // }
     return pyramid;
 }
 
@@ -92,7 +78,7 @@ ScaleSpacePyramid generate_dog_pyramid(const ScaleSpacePyramid& img_pyramid)
         std::vector<std::vector<Image>>(img_pyramid.num_octaves)
     };
 
-    #pragma omp parallel for
+    //adding omp here adds overhead
     for (int i = 0; i < dog_pyramid.num_octaves; i++) {
         dog_pyramid.octaves[i].reserve(dog_pyramid.imgs_per_octave);
         for (int j = 1; j < img_pyramid.imgs_per_octave; j++) {
@@ -103,7 +89,6 @@ ScaleSpacePyramid generate_dog_pyramid(const ScaleSpacePyramid& img_pyramid)
                 diff.data[pix_idx] -= img_pyramid.octaves[i][j-1].data[pix_idx];
             }
             
-            #pragma omp critical
             dog_pyramid.octaves[i].push_back(diff);
         }
     }
@@ -111,7 +96,7 @@ ScaleSpacePyramid generate_dog_pyramid(const ScaleSpacePyramid& img_pyramid)
     return dog_pyramid;
 }
 
-// adding omp added too much overhead 
+// adding omp added too much overhead bc for loop is small
 bool point_is_extremum(const std::vector<Image>& octave, int scale, int x, int y)
 {
     const Image& img = octave[scale];
@@ -141,7 +126,7 @@ bool point_is_extremum(const std::vector<Image>& octave, int scale, int x, int y
     return true;
 }
 
-// no parallelization 
+// no parallelization opportunity
 
 // fit a quadratic near the discrete extremum,
 // update the keypoint (interpolated) extremum value
@@ -195,7 +180,7 @@ std::tuple<float, float, float> fit_quadratic(Keypoint& kp,
     return {offset_s, offset_x, offset_y};
 }
 
-// no parallelization 
+// no parallelization opportunity
 bool point_is_on_edge(const Keypoint& kp, const std::vector<Image>& octave, float edge_thresh=C_EDGE)
 {
     const Image& img = octave[kp.scale];
