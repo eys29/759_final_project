@@ -615,58 +615,61 @@ void update_histograms(float hist[N_HIST][N_HIST][N_ORI], float x, float y,
 //     }
 // }
 
-// Can be parallelized, much slower than before
+// // Can be parallelized, much slower than before
+// void hists_to_vec(float histograms[N_HIST][N_HIST][N_ORI], std::array<uint8_t, 128>& feature_vec)
+// {
+//     int size = N_HIST * N_HIST * N_ORI;
+//     float *hist = reinterpret_cast<float *>(histograms);
+
+//     // Compute the L2 norm (norm)
+//     float norm = 0;
+//     #pragma omp parallel for reduction(+:norm)
+//     for (int i = 0; i < size; i++) {
+//         norm += hist[i] * hist[i];
+//     }
+//     norm = std::sqrt(norm);
+
+//     // Clip values and compute the second L2 norm (norm2)
+//     float norm2 = 0;
+//     #pragma omp parallel for reduction(+:norm2)
+//     for (int i = 0; i < size; i++) {
+//         hist[i] = std::min(hist[i], 0.2f * norm);
+//         norm2 += hist[i] * hist[i];
+//     }
+//     norm2 = std::sqrt(norm2);
+
+//     // Quantize values into the feature vector
+//     #pragma omp parallel for
+//     for (int i = 0; i < size; i++) {
+//         float val = std::floor(512 * hist[i] / norm2);
+//         feature_vec[i] = std::min(static_cast<int>(val), 255);
+//     }
+// }
+
 void hists_to_vec(float histograms[N_HIST][N_HIST][N_ORI], std::array<uint8_t, 128>& feature_vec)
 {
-    int size = N_HIST * N_HIST * N_ORI;
+    int size = N_HIST*N_HIST*N_ORI;
     float *hist = reinterpret_cast<float *>(histograms);
 
-    // Compute the L2 norm (norm)
     float norm = 0;
     #pragma omp parallel for reduction(+:norm)
     for (int i = 0; i < size; i++) {
         norm += hist[i] * hist[i];
     }
     norm = std::sqrt(norm);
-
-    // Clip values and compute the second L2 norm (norm2)
     float norm2 = 0;
     #pragma omp parallel for reduction(+:norm2)
     for (int i = 0; i < size; i++) {
-        hist[i] = std::min(hist[i], 0.2f * norm);
+        hist[i] = std::min(hist[i], 0.2f*norm);
         norm2 += hist[i] * hist[i];
     }
     norm2 = std::sqrt(norm2);
-
-    // Quantize values into the feature vector
     #pragma omp parallel for
     for (int i = 0; i < size; i++) {
-        float val = std::floor(512 * hist[i] / norm2);
-        feature_vec[i] = std::min(static_cast<int>(val), 255);
+        float val = std::floor(512*hist[i]/norm2);
+        feature_vec[i] = std::min((int)val, 255);
     }
 }
-
-// void hists_to_vec(float histograms[N_HIST][N_HIST][N_ORI], std::array<uint8_t, 128>& feature_vec)
-// {
-//     int size = N_HIST*N_HIST*N_ORI;
-//     float *hist = reinterpret_cast<float *>(histograms);
-
-//     float norm = 0;
-//     for (int i = 0; i < size; i++) {
-//         norm += hist[i] * hist[i];
-//     }
-//     norm = std::sqrt(norm);
-//     float norm2 = 0;
-//     for (int i = 0; i < size; i++) {
-//         hist[i] = std::min(hist[i], 0.2f*norm);
-//         norm2 += hist[i] * hist[i];
-//     }
-//     norm2 = std::sqrt(norm2);
-//     for (int i = 0; i < size; i++) {
-//         float val = std::floor(512*hist[i]/norm2);
-//         feature_vec[i] = std::min((int)val, 255);
-//     }
-// }
 
 void compute_keypoint_descriptor(Keypoint& kp, float theta,
                                  const ScaleSpacePyramid& grad_pyramid,
@@ -704,7 +707,7 @@ void compute_keypoint_descriptor(Keypoint& kp, float theta,
             float weight = std::exp(-(std::pow(m*pix_dist-kp.x, 2)+std::pow(n*pix_dist-kp.y, 2))
                                     /(2*patch_sigma*patch_sigma));
             float contribution = weight * grad_norm;
-
+            //synchronizing access to this part of the code is causing the code to run slower
             update_histograms(histograms, x, y, contribution, theta_mn, lambda_desc);
         }
     }
@@ -740,7 +743,7 @@ std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sig
     }
     return kps;
 }
-
+//overhead of parallelizing this portion of the code is not worth it
 float euclidean_dist(std::array<uint8_t, 128>& a, std::array<uint8_t, 128>& b)
 {
     float dist = 0;
@@ -787,6 +790,7 @@ Image draw_keypoints(const Image& img, const std::vector<Keypoint>& kps)
     if (img.channels == 1) {
         res = grayscale_to_rgb(res);
     }
+    #pragma omp parallel for
     for (auto& kp : kps) {
         draw_point(res, kp.x, kp.y, 5);
     }
@@ -797,7 +801,7 @@ Image draw_matches(const Image& a, const Image& b, std::vector<Keypoint>& kps_a,
                    std::vector<Keypoint>& kps_b, std::vector<std::pair<int, int>> matches)
 {
     Image res(a.width+b.width, std::max(a.height, b.height), 3);
-
+    #pragma omp parallel for collapse (2)
     for (int i = 0; i < a.width; i++) {
         for (int j = 0; j < a.height; j++) {
             res.set_pixel(i, j, 0, a.get_pixel(i, j, 0));
@@ -805,6 +809,8 @@ Image draw_matches(const Image& a, const Image& b, std::vector<Keypoint>& kps_a,
             res.set_pixel(i, j, 2, a.get_pixel(i, j, a.channels == 3 ? 2 : 0));
         }
     }
+    #pragma omp parallel for collapse (2)
+    
     for (int i = 0; i < b.width; i++) {
         for (int j = 0; j < b.height; j++) {
             res.set_pixel(a.width+i, j, 0, b.get_pixel(i, j, 0));
