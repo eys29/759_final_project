@@ -8,15 +8,15 @@
 #include <cuda.h>
 
 // CUDA Kernel for distance computation
-__global__ void compute_distances(float* desc_a, float* desc_b, float* distances, int num_a, int num_b, int dim) {
+__global__ void compute_distances(std::array<uint8_t, 128> desc_a[], std::array<uint8_t, 128> desc_b[], float* distances, int num_a, int num_b, int dim) {
     int idx_a = blockIdx.x * blockDim.x + threadIdx.x;
     int idx_b = blockIdx.y * blockDim.y + threadIdx.y;
 
     if (idx_a < num_a && idx_b < num_b) {
         float dist = 0.0f;
         for (int i = 0; i < dim; i++) {
-            float diff = desc_a[idx_a * dim + i] - desc_b[idx_b * dim + i];
-            dist += diff * diff;
+            int di = (int)desc_a[idx_a][i] - (int)desc_b[idx_b][i];
+            dist += di * di;
         }
         distances[idx_a * num_b + idx_b] = sqrtf(dist);
     }
@@ -81,26 +81,28 @@ int main(int argc, char *argv[])
     int dim = 128; // Descriptor size
 
     // Allocate and copy descriptors to device
-    uint8_t* desc_a;
-    uint8_t* desc_b;
-    cudaMalloc((void **)&desc_a, num_a * dim * sizeof(uint8_t));
-    cudaMalloc((void **)&desc_b, num_b * dim * sizeof(uint8_t));
+    std::array<uint8_t, 128> desc_a[num_a];
+    std::array<uint8_t, 128> desc_b[num_b];
+    cudaMalloc((void **)&desc_a, num_a * sizeof(std::array<uint8_t, 128>));
+    cudaMalloc((void **)&desc_b, num_b * sizeof(std::array<uint8_t, 128>));
 
-    uint8_t* h_desc_a = (uint8_t *)malloc(num_a * dim * sizeof(uint8_t));
-    uint8_t* h_desc_b = (uint8_t *)malloc(num_b * dim * sizeof(uint8_t));
+    std::array<uint8_t, 128> h_desc_a[num_a];
+    std::array<uint8_t, 128> h_desc_b[num_b];
+    //uint8_t* h_desc_a = (uint8_t *)malloc(num_a * dim * sizeof(uint8_t));
+    //uint8_t* h_desc_b = (uint8_t *)malloc(num_b * dim * sizeof(uint8_t));
 
     for (int i = 0; i < num_a; i++)
-        memcpy(&h_desc_a[i * dim], kps_a[i].descriptor.data(), dim * sizeof(uint8_t));
+        memcpy(&h_desc_a[i], (void *)&kps_a[i].descriptor, sizeof(std::array<uint8_t, 128>));
 
     for (int i = 0; i < num_b; i++)
-        memcpy(&h_desc_b[i * dim], kps_b[i].descriptor.data(), dim * sizeof(uint8_t));
+        memcpy(&h_desc_b[i], (void *)&kps_b[i].descriptor, sizeof(std::array<uint8_t, 128>));
 
-    cudaMemcpy(desc_a, h_desc_a, num_a * dim * sizeof(uint8_t), cudaMemcpyHostToDevice);
-    cudaMemcpy(desc_b, h_desc_b, num_b * dim * sizeof(uint8_t), cudaMemcpyHostToDevice);
+    cudaMemcpy(desc_a, h_desc_a, num_a * sizeof(std::array<uint8_t, 128>), cudaMemcpyHostToDevice);
+    cudaMemcpy(desc_b, h_desc_b, num_b * sizeof(std::array<uint8_t, 128>), cudaMemcpyHostToDevice);
 
     // Allocate memory for distances and matches on device
     float* distances;
-    float* matches;
+    int* matches;
     cudaMalloc((void **)&distances, num_a * num_b * sizeof(float));
     cudaMalloc((void **)&matches, num_a * sizeof(int));
 
@@ -109,14 +111,14 @@ int main(int argc, char *argv[])
     dim3 numBlocks((num_a + threadsPerBlock.x - 1) / threadsPerBlock.x,
                    (num_b + threadsPerBlock.y - 1) / threadsPerBlock.y);
 
-    compute_distances<<<numBlocks, threadsPerBlock>>>(reinterpret_cast<uint8_t*>(desc_a), reinterpret_cast<uint8_t*>(desc_b), reinterpret_cast<float*>(distances), num_a, num_b, dim);
+    compute_distances<<<numBlocks, threadsPerBlock>>>(desc_a, desc_b, distances, num_a, num_b, dim);
     cudaDeviceSynchronize();
 
     // Launch matching kernel
     dim3 threadsPerMatchBlock(256);
     dim3 numMatchBlocks((num_a + threadsPerMatchBlock.x - 1) / threadsPerMatchBlock.x);
 
-    match_features<<<numMatchBlocks, threadsPerMatchBlock>>>(reinterpret_cast<float*>(distances), reinterpret_cast<int*>(matches), num_a, num_b, 0.8f, 50.0f);
+    match_features<<<numMatchBlocks, threadsPerMatchBlock>>>(distances, matches, num_a, num_b, 0.7f, 350.0f);
     cudaDeviceSynchronize();
 
     // Copy matches back to host
@@ -147,8 +149,8 @@ int main(int argc, char *argv[])
     cudaFree(desc_b);
     cudaFree(distances);
     cudaFree(matches);
-    free(h_desc_a);
-    free(h_desc_b);
+    //free(h_desc_a);
+    //free(h_desc_b);
     free(h_matches);
 
 
