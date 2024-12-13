@@ -7,6 +7,10 @@
 
 #include <cuda.h>
 
+// compile
+// nvcc cudasift.cu sift.cpp  image.cpp  -Xcompiler -O3 -Xcompiler -O3 -std c++17 -o cudasift --expt-relaxed-constexpr
+
+
 // CUDA Kernel for distance computation
 __global__ void compute_distances(std::array<uint8_t, 128> desc_a[], std::array<uint8_t, 128> desc_b[], float* distances, int num_a, int num_b, int dim) {
     int idx_a = blockIdx.x * blockDim.x + threadIdx.x;
