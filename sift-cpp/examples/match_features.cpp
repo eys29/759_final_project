@@ -26,10 +26,11 @@ int main(int argc, char *argv[])
     // is j: index of keypoint in b
     std::vector<std::pair<int, int>> matches = sift::find_keypoint_matches(kps_a, kps_b);
     Image result = sift::draw_matches(a, b, kps_a, kps_b, matches);
-    result.save("result.jpg");
     // End timing
     auto end_time = std::chrono::high_resolution_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    // Now can save result
+    result.save("result.jpg");
     // Output results
     std::cout << "Found " << matches.size() << " feature matches. Output image is saved as result.jpg\n";
     std::cout << "Execution time: " << elapsed << " milliseconds.\n";
