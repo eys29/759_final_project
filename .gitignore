@@ -2,4 +2,6 @@
 bin/
 build/
 .vscode/
-*.txt
+small.txt
+medium.txt
+large.txt
