@@ -1,4 +1,10 @@
-# Run benchmarks
+#!/usr/bin/env bash
+#SBATCH --job-name=task1
+#SBATCH -p instruction
+#SBATCH --ntasks=1 --cpus-per-task=4
+#SBATCH --time=0-00:10:00
+#SBATCH --output="run.out"
+#SBATCH --error="run.out"
 
 # Remove logs from previous runs
 rm -f small.txt
