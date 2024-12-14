@@ -29,7 +29,7 @@ int main(int argc, char *argv[])
     // End timing
     auto end_time = std::chrono::high_resolution_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-    // Now can save result
+    // Now we can save result
     result.save("result.jpg");
     // Output results
     std::cout << "Found " << matches.size() << " feature matches. Output image is saved as result.jpg\n";
